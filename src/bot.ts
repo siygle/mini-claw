@@ -5,8 +5,11 @@ import { detectFiles, snapshotWorkspace } from "./file-detector.js";
 import { markdownToHtml, stripMarkdown } from "./markdown.js";
 import {
 	type ActivityUpdate,
+	type ExtractedImage,
 	acquireLock,
 	checkPiAuth,
+	extractImagesFromSession,
+	getSessionLineCount,
 	runPiWithStreaming,
 } from "./pi-runner.js";
 import { checkRateLimit } from "./rate-limiter.js";
@@ -397,6 +400,9 @@ Send any message to chat with AI.`,
 		// Snapshot workspace before Pi execution
 		const beforeSnapshot = await snapshotWorkspace(workspace);
 
+		// Track session file line count to detect new images
+		const sessionLinesBefore = await getSessionLineCount(config, chatId);
+
 		// Send initial status message that we'll update
 		const statusMsg = await ctx.reply("🔄 Working...");
 		let lastStatusUpdate = Date.now();
@@ -478,7 +484,27 @@ Send any message to chat with AI.`,
 				}
 			}
 
-			// Detect and send any files created by Pi
+			// Extract and send images from tool results (e.g., design_poster)
+			const toolImages = await extractImagesFromSession(
+				config,
+				chatId,
+				sessionLinesBefore,
+			);
+
+			for (let i = 0; i < toolImages.length; i++) {
+				const img = toolImages[i];
+				try {
+					// Determine file extension from mimeType
+					const ext = img.mimeType.split("/")[1] || "png";
+					const filename = `image_${i + 1}.${ext}`;
+					await ctx.replyWithPhoto(new InputFile(img.data, filename));
+				} catch (err) {
+					// Log error but don't spam user
+					console.error("Failed to send tool image:", err);
+				}
+			}
+
+			// Detect and send any files created by Pi (from filesystem)
 			const detectedFiles = await detectFiles(
 				result.output || "",
 				workspace,
