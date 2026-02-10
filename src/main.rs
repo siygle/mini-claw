@@ -51,6 +51,33 @@ async fn main() -> Result<()> {
         }
     }
 
+    // Diagnostic: try pi --version and log the actual result for debugging
+    match tokio::process::Command::new(&config.pi_path)
+        .arg("--version")
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .output()
+        .await
+    {
+        Ok(output) => {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            if output.status.success() {
+                tracing::info!(version = stdout.trim(), "Pi version check passed");
+            } else {
+                tracing::warn!(
+                    exit_code = ?output.status.code(),
+                    stdout = stdout.trim(),
+                    stderr = stderr.trim(),
+                    "Pi version check failed (bot will continue, errors may appear per-message)"
+                );
+            }
+        }
+        Err(e) => {
+            tracing::warn!(error = %e, pi_path = %config.pi_path, "Failed to spawn pi --version (bot will continue)");
+        }
+    }
+
     // Build shared state
     let state = bot::AppState::new(config.clone());
 
