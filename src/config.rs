@@ -8,7 +8,6 @@ pub struct Config {
     pub telegram_token: String,
     pub workspace: PathBuf,
     pub session_dir: PathBuf,
-    pub pi_path: String,
     pub thinking_level: ThinkingLevel,
     pub allowed_users: Vec<i64>,
     pub rate_limit_cooldown_ms: u64,
@@ -121,13 +120,10 @@ pub fn load_config() -> Result<Config, MiniClawError> {
         .and_then(|s| s.trim().parse().ok())
         .unwrap_or(10_000);
 
-    let pi_path = resolve_pi_path()?;
-
     Ok(Config {
         telegram_token,
         workspace,
         session_dir,
-        pi_path,
         thinking_level,
         allowed_users,
         rate_limit_cooldown_ms,
@@ -135,68 +131,6 @@ pub fn load_config() -> Result<Config, MiniClawError> {
         shell_timeout_ms,
         session_title_timeout_ms,
     })
-}
-
-fn resolve_pi_path() -> Result<String, MiniClawError> {
-    // 1. Explicit PI_PATH env var
-    if let Ok(p) = std::env::var("PI_PATH") {
-        let p = p.trim().to_string();
-        if !p.is_empty() && std::path::Path::new(&p).exists() {
-            return Ok(p);
-        }
-    }
-
-    // 2. Check if "pi" is on PATH (works in interactive shells)
-    if let Ok(output) = std::process::Command::new("which")
-        .arg("pi")
-        .output()
-    {
-        if output.status.success() {
-            let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            if !path.is_empty() {
-                return Ok(path);
-            }
-        }
-    }
-
-    // 3. Common locations for Node.js global installs (fnm, nvm, etc.)
-    if let Some(home) = dirs::home_dir() {
-        let candidates = [
-            // fnm default
-            home.join("Library/Application Support/fnm/aliases/default/bin/pi"),
-            // nvm default
-            home.join(".nvm/alias/default/bin/pi"),
-            // Volta
-            home.join(".volta/bin/pi"),
-            // npm global (Linux/macOS)
-            home.join(".npm-global/bin/pi"),
-            // Standard local bin
-            home.join(".local/bin/pi"),
-        ];
-
-        // Also scan fnm node-versions for any installed version
-        let fnm_versions_dir = home.join("Library/Application Support/fnm/node-versions");
-        if fnm_versions_dir.is_dir() {
-            if let Ok(entries) = std::fs::read_dir(&fnm_versions_dir) {
-                for entry in entries.flatten() {
-                    let candidate = entry.path().join("installation/bin/pi");
-                    if candidate.exists() {
-                        return Ok(candidate.to_string_lossy().to_string());
-                    }
-                }
-            }
-        }
-
-        for candidate in &candidates {
-            if candidate.exists() {
-                return Ok(candidate.to_string_lossy().to_string());
-            }
-        }
-    }
-
-    Err(MiniClawError::Config(
-        "Pi binary not found. Set PI_PATH environment variable to the full path of the 'pi' binary, or ensure it's on PATH.".into(),
-    ))
 }
 
 #[cfg(test)]

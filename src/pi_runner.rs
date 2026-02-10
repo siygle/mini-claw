@@ -116,40 +116,18 @@ fn get_session_path(config: &Config, chat_id: i64) -> PathBuf {
     config.session_dir.join(format!("telegram-{chat_id}.jsonl"))
 }
 
-pub enum PiReadiness {
-    Ready,
-    BinaryNotFound(String),
-    #[cfg(unix)]
-    BinaryNotExecutable(String),
-    AuthFileMissing,
-}
-
-pub async fn check_pi_readiness(pi_path: &str) -> PiReadiness {
-    // 1. Check binary exists
-    let metadata = match tokio::fs::metadata(pi_path).await {
-        Ok(m) => m,
-        Err(_) => return PiReadiness::BinaryNotFound(pi_path.to_string()),
-    };
-
-    // 2. Check binary is executable (Unix only)
-    #[cfg(unix)]
+/// Check if Pi is available on PATH by running `pi --version`.
+pub async fn check_pi_auth() -> bool {
+    match Command::new("pi")
+        .arg("--version")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .await
     {
-        use std::os::unix::fs::PermissionsExt;
-        if metadata.permissions().mode() & 0o111 == 0 {
-            return PiReadiness::BinaryNotExecutable(pi_path.to_string());
-        }
+        Ok(status) => status.success(),
+        Err(_) => false,
     }
-    let _ = metadata; // suppress unused warning on non-unix
-
-    // 3. Check auth file exists (~/.pi/agent/auth.json)
-    if let Some(home) = dirs::home_dir() {
-        let auth_path = home.join(".pi").join("agent").join("auth.json");
-        if tokio::fs::metadata(&auth_path).await.is_err() {
-            return PiReadiness::AuthFileMissing;
-        }
-    }
-
-    PiReadiness::Ready
 }
 
 pub async fn run_pi_with_streaming<F>(
@@ -195,7 +173,7 @@ where
     let home = dirs::home_dir().unwrap_or_default();
     let pi_agent_dir = home.join(".pi").join("agent");
 
-    let mut child = match Command::new(&config.pi_path)
+    let mut child = match Command::new("pi")
         .args(&args)
         .current_dir(workspace)
         .env("PI_AGENT_DIR", &pi_agent_dir)

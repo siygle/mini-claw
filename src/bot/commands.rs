@@ -3,7 +3,7 @@ use teloxide::utils::command::BotCommands;
 
 use super::util::{run_shell, split_message};
 use super::AppState;
-use crate::pi_runner::{check_pi_readiness, PiReadiness};
+use crate::pi_runner::check_pi_auth;
 use crate::sessions::{
     archive_session, format_file_size, format_session_age,
     generate_session_title, list_sessions,
@@ -60,13 +60,7 @@ pub async fn handle_command(
 }
 
 async fn handle_start(bot: Bot, msg: Message, state: AppState) -> anyhow::Result<()> {
-    let status = match check_pi_readiness(&state.config.pi_path).await {
-        PiReadiness::Ready => "Pi: OK",
-        PiReadiness::BinaryNotFound(_) => "Pi: binary not found",
-        #[cfg(unix)]
-        PiReadiness::BinaryNotExecutable(_) => "Pi: binary not executable",
-        PiReadiness::AuthFileMissing => "Pi: binary found, auth not detected",
-    };
+    let status = if check_pi_auth().await { "Pi: OK" } else { "Pi: not available" };
 
     let cwd = state.workspace_mgr.lock().await.get_workspace(msg.chat.id.0).await;
     let formatted = WorkspaceManager::format_path(&cwd);
@@ -196,7 +190,7 @@ async fn handle_session(bot: Bot, msg: Message, state: AppState) -> anyhow::Resu
     let mut sessions_with_titles = Vec::new();
     for session in sessions.iter().take(10) {
         let title =
-            generate_session_title(&session.path, state.config.session_title_timeout_ms, &state.config.pi_path).await;
+            generate_session_title(&session.path, state.config.session_title_timeout_ms).await;
         sessions_with_titles.push((session, title));
     }
 
@@ -254,13 +248,7 @@ async fn handle_new(bot: Bot, msg: Message, state: AppState) -> anyhow::Result<(
 }
 
 async fn handle_status(bot: Bot, msg: Message, state: AppState) -> anyhow::Result<()> {
-    let pi_status = match check_pi_readiness(&state.config.pi_path).await {
-        PiReadiness::Ready => "OK".to_string(),
-        PiReadiness::BinaryNotFound(p) => format!("binary not found ({p})"),
-        #[cfg(unix)]
-        PiReadiness::BinaryNotExecutable(p) => format!("not executable ({p})"),
-        PiReadiness::AuthFileMissing => "binary found, auth not detected".to_string(),
-    };
+    let pi_status = if check_pi_auth().await { "OK".to_string() } else { "not available".to_string() };
     let cwd = state.workspace_mgr.lock().await.get_workspace(msg.chat.id.0).await;
     let formatted = WorkspaceManager::format_path(&cwd);
 
