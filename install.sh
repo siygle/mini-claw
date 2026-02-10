@@ -152,8 +152,7 @@ download_binaries() {
     # Find and copy binaries (they're inside a directory in the tarball)
     local extract_dir="${tmp_dir}/mini-claw-${version}-${TARGET}"
     cp "${extract_dir}/mini-claw" "${BIN_DIR}/mini-claw"
-    cp "${extract_dir}/pw" "${BIN_DIR}/pw"
-    chmod +x "${BIN_DIR}/mini-claw" "${BIN_DIR}/pw"
+    chmod +x "${BIN_DIR}/mini-claw"
 
     # Copy .env.example if no .env exists
     if [ ! -f "${CONFIG_DIR}/.env" ] && [ -f "${extract_dir}/.env.example" ]; then
@@ -197,8 +196,7 @@ build_from_source() {
 
     mkdir -p "$BIN_DIR"
     cp "${project_dir}/target/release/mini-claw" "${BIN_DIR}/mini-claw"
-    cp "${project_dir}/target/release/pw" "${BIN_DIR}/pw"
-    chmod +x "${BIN_DIR}/mini-claw" "${BIN_DIR}/pw"
+    chmod +x "${BIN_DIR}/mini-claw"
 
     # Copy .env.example if available and no .env exists yet
     if [ ! -f "${CONFIG_DIR}/.env" ] && [ -f "${project_dir}/.env.example" ]; then
@@ -611,8 +609,7 @@ show_status() {
 print_summary() {
     header "Installation complete!"
     echo ""
-    echo "  Binaries:  ${BIN_DIR}/mini-claw"
-    echo "             ${BIN_DIR}/pw"
+    echo "  Binary:    ${BIN_DIR}/mini-claw"
     echo "  Config:    ${CONFIG_DIR}/.env"
     echo "  Sessions:  ${CONFIG_DIR}/sessions/"
     echo "  Workspace: ${HOME}/mini-claw-workspace/"
