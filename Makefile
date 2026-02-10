@@ -1,4 +1,4 @@
-.PHONY: install login dev start build status clean help test clippy check pw-build pw-install install-service deploy uninstall
+.PHONY: install login dev start build status clean help test clippy check install-service deploy uninstall
 
 # Default target
 help:
@@ -26,10 +26,6 @@ help:
 	@echo "Deploy:"
 	@echo "  make deploy     Build from source & install as service"
 	@echo "  make uninstall  Stop service & remove service files"
-	@echo ""
-	@echo "Playwright Skill:"
-	@echo "  make pw-build   Build pw CLI binary"
-	@echo "  make pw-install Build and install pw CLI to ~/.cargo/bin"
 	@echo ""
 	@echo "Setup:"
 	@echo "  1. make install"
@@ -119,17 +115,6 @@ install-service:
 	@echo "  systemctl --user daemon-reload"
 	@echo "  systemctl --user start mini-claw"
 	@echo "  systemctl --user enable mini-claw"
-
-# Playwright skill targets
-pw-build:
-	@echo "Building pw CLI..."
-	cargo build -p pw
-
-pw-install:
-	@echo "Building and installing pw CLI..."
-	cargo install --path skills/playwright
-	@echo ""
-	@echo "Done! Test with: pw --help"
 
 # Deploy: build from source and install as service
 deploy:

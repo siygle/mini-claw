@@ -1,6 +1,5 @@
 # Rust
 /target/
-skills/playwright/target/
 
 # Environment
 .env

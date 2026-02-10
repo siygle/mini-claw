@@ -193,20 +193,11 @@ make check      # Run clippy + tests
 make clean      # Remove build artifacts
 ```
 
-### Playwright CLI
-
-The `pw` binary is a standalone CLI for browser automation, used by Pi as a skill.
-
-```bash
-make pw-build     # Build pw binary
-make pw-install   # Install pw to ~/.cargo/bin
-```
-
 ### Project Structure
 
 ```
 mini-claw/
-├── Cargo.toml              # Workspace root
+├── Cargo.toml              # Crate manifest
 ├── src/
 │   ├── main.rs             # Entry point
 │   ├── config.rs           # Configuration
@@ -216,7 +207,6 @@ mini-claw/
 │   ├── workspace.rs        # Workspace snapshots
 │   ├── sessions.rs         # Session management
 │   ├── pi_runner.rs        # Pi one-shot execution
-│   ├── pi_rpc.rs           # Pi RPC protocol (live mode)
 │   ├── rate_limiter.rs     # Per-chat rate limiting
 │   └── bot/
 │       ├── mod.rs          # Bot setup & dispatcher
@@ -224,12 +214,6 @@ mini-claw/
 │       ├── callbacks.rs    # Inline keyboard callbacks
 │       ├── handlers.rs     # Message handlers
 │       └── util.rs         # Message splitting & helpers
-├── skills/playwright/      # pw CLI crate
-│   ├── Cargo.toml
-│   └── src/
-│       ├── main.rs
-│       ├── browser.rs
-│       └── commands/
 ├── install.sh              # Cross-platform installer
 ├── Makefile
 ├── .env.example
@@ -242,9 +226,8 @@ mini-claw/
 
 - **Language**: Rust
 - **Telegram**: [teloxide](https://github.com/teloxide/teloxide)
-- **Browser Automation**: [chromiumoxide](https://github.com/mattsse/chromiumoxide)
 - **AI Backend**: [Pi coding agent](https://github.com/badlogic/pi-mono)
-- **CI/CD**: GitHub Actions (cross-compile for Linux & macOS, x86_64 & aarch64)
+- **CI/CD**: GitHub Actions (cross-compile for Linux, macOS & Termux/musl)
 
 ## Troubleshooting
 

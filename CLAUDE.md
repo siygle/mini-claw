@@ -11,10 +11,9 @@ Lightweight Telegram bot for persistent AI conversations using Pi coding agent.
 ## Tech Stack
 
 - **Language**: Rust (2021 edition)
-- **Build**: Cargo workspace (root + `skills/playwright`)
+- **Build**: Cargo
 - **AI Backend**: [@mariozechner/pi-coding-agent](https://github.com/badlogic/pi-mono)
 - **Telegram**: [teloxide](https://github.com/teloxide/teloxide) (mature Rust Telegram framework)
-- **Browser Automation**: [chromiumoxide](https://github.com/nickel-project/chromiumoxide) (pure Rust CDP client)
 - **Process**: Single long-running binary (systemd/tmux)
 
 ## Architecture
@@ -36,39 +35,27 @@ Lightweight Telegram bot for persistent AI conversations using Pi coding agent.
 ## Directory Structure
 
 ```
-tehran/
+auckland/
 ├── CLAUDE.md              # This file
-├── Cargo.toml             # Workspace root + mini-claw binary
+├── Cargo.toml             # mini-claw binary
 ├── Makefile               # Quick commands
 ├── .env.example           # Environment template
-├── src/
-│   ├── main.rs            # Entry point
-│   ├── config.rs          # Configuration (env vars)
-│   ├── error.rs           # MiniClawError enum
-│   ├── rate_limiter.rs    # Per-chat rate limiting
-│   ├── markdown.rs        # Markdown → Telegram HTML
-│   ├── file_detector.rs   # Detect files in Pi output
-│   ├── workspace.rs       # Per-chat working directory
-│   ├── pi_runner.rs       # One-shot Pi (--print mode)
-│   ├── sessions.rs        # Session management
-│   └── bot/
-│       ├── mod.rs          # AppState, dispatcher setup
-│       ├── commands.rs     # /start, /help, /cd, /shell, etc.
-│       ├── handlers.rs     # Text & photo message handlers
-│       ├── callbacks.rs    # Inline keyboard callbacks
-│       └── util.rs         # split_message, run_shell
-└── skills/playwright/
-    ├── Cargo.toml          # pw CLI crate
-    └── src/
-        ├── main.rs         # Clap CLI entry point
-        ├── browser.rs      # chromiumoxide session
-        └── commands/
-            ├── mod.rs
-            ├── navigate.rs
-            ├── screenshot.rs
-            ├── interact.rs
-            ├── content.rs
-            └── wait.rs
+└── src/
+    ├── main.rs            # Entry point
+    ├── config.rs          # Configuration (env vars)
+    ├── error.rs           # MiniClawError enum
+    ├── rate_limiter.rs    # Per-chat rate limiting
+    ├── markdown.rs        # Markdown → Telegram HTML
+    ├── file_detector.rs   # Detect files in Pi output
+    ├── workspace.rs       # Per-chat working directory
+    ├── pi_runner.rs       # One-shot Pi (--print mode)
+    ├── sessions.rs        # Session management
+    └── bot/
+        ├── mod.rs          # AppState, dispatcher setup
+        ├── commands.rs     # /start, /help, /cd, /shell, etc.
+        ├── handlers.rs     # Text & photo message handlers
+        ├── callbacks.rs    # Inline keyboard callbacks
+        └── util.rs         # split_message, run_shell
 ```
 
 ## Quick Start
@@ -102,8 +89,6 @@ make dev
 | `make check`         | Run clippy + tests                 |
 | `make status`        | Check Pi auth status               |
 | `make clean`         | Remove build artifacts             |
-| `make pw-build`      | Build pw CLI binary                |
-| `make pw-install`    | Install pw CLI to ~/.cargo/bin     |
 
 ## Environment Variables
 
@@ -196,8 +181,6 @@ make start
 | Async runtime | `tokio` (full) |
 | Serialization | `serde` + `serde_json` |
 | HTTP client | `reqwest 0.12` |
-| Browser automation | `chromiumoxide 0.8` |
-| CLI parsing | `clap 4` (derive) |
 | Errors | `thiserror` + `anyhow` |
 | Logging | `tracing` + `tracing-subscriber` |
 
