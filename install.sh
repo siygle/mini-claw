@@ -27,7 +27,6 @@ LAUNCHD_LABEL="com.mini-claw.bot"
 LAUNCHD_PLIST="$HOME/Library/LaunchAgents/${LAUNCHD_LABEL}.plist"
 SYSTEMD_SERVICE="$HOME/.config/systemd/user/${SERVICE_NAME}.service"
 IS_TERMUX=false
-TERMUX_SV_DIR="${PREFIX:-/data/data/com.termux/files/usr}/var/service/${SERVICE_NAME}"
 
 # ── Colors ───────────────────────────────────────────────────────────────────
 
@@ -453,13 +452,37 @@ install_termux() {
     if ! command_exists sv; then
         info "Installing termux-services..."
         pkg install -y termux-services
-        warn "termux-services was just installed. You may need to restart Termux for sv to work."
     fi
 
-    mkdir -p "${TERMUX_SV_DIR}/log"
+    # Ensure SVDIR is set (source profile if needed)
+    if [ -z "${SVDIR:-}" ]; then
+        if [ -f "${PREFIX}/etc/profile.d/start-services.sh" ]; then
+            . "${PREFIX}/etc/profile.d/start-services.sh"
+        fi
+    fi
 
-    # Source .env and export vars for the run script
-    cat > "${TERMUX_SV_DIR}/run" <<EOF
+    if [ -z "${SVDIR:-}" ]; then
+        export SVDIR="${PREFIX}/var/service"
+    fi
+
+    # Ensure runsvdir is running
+    if ! pgrep -x runsvdir >/dev/null 2>&1; then
+        warn "runsvdir is not running. Starting service daemon..."
+        if command_exists service-daemon; then
+            service-daemon start
+        fi
+        # Give it a moment to start
+        sleep 1
+        if ! pgrep -x runsvdir >/dev/null 2>&1; then
+            warn "Could not start runsvdir. You may need to restart Termux."
+        fi
+    fi
+
+    local sv_dir="${SVDIR}/${SERVICE_NAME}"
+    mkdir -p "${sv_dir}/log"
+
+    # Create the run script
+    cat > "${sv_dir}/run" <<EOF
 #!/data/data/com.termux/files/usr/bin/sh
 exec 2>&1
 
@@ -474,38 +497,58 @@ export PATH="${PREFIX}/bin:${HOME}/.cargo/bin:${HOME}/.nvm/versions/node/\$(node
 cd ${HOME}/mini-claw-workspace
 exec ${BIN_DIR}/mini-claw
 EOF
-    chmod +x "${TERMUX_SV_DIR}/run"
+    chmod +x "${sv_dir}/run"
 
-    # Log service
-    cat > "${TERMUX_SV_DIR}/log/run" <<EOF
+    # Log service: symlink to termux-services svlogger
+    if [ -f "${PREFIX}/share/termux-services/svlogger" ]; then
+        ln -sf "${PREFIX}/share/termux-services/svlogger" "${sv_dir}/log/run"
+    else
+        # Fallback: write a simple log script
+        cat > "${sv_dir}/log/run" <<EOF
 #!/data/data/com.termux/files/usr/bin/sh
-mkdir -p ${CONFIG_DIR}/logs
-exec svlogd -tt ${CONFIG_DIR}/logs
+mkdir -p ${PREFIX}/var/log/sv/${SERVICE_NAME}
+exec svlogd -tt ${PREFIX}/var/log/sv/${SERVICE_NAME}
 EOF
-    chmod +x "${TERMUX_SV_DIR}/log/run"
+        chmod +x "${sv_dir}/log/run"
+    fi
 
-    # Enable and start
-    sv up "$SERVICE_NAME" 2>/dev/null || true
+    # Enable and start (sv-enable removes 'down' file + starts)
+    if command_exists sv-enable; then
+        sv-enable "$SERVICE_NAME" 2>/dev/null || sv up "$SERVICE_NAME" 2>/dev/null || true
+    else
+        sv up "$SERVICE_NAME" 2>/dev/null || true
+    fi
 
+    local log_dir="${PREFIX}/var/log/sv/${SERVICE_NAME}"
     success "Service installed and started"
     echo ""
     info "Useful commands:"
-    echo "  sv status ${SERVICE_NAME}    # Check status"
-    echo "  sv restart ${SERVICE_NAME}   # Restart"
-    echo "  sv down ${SERVICE_NAME}      # Stop"
-    echo "  cat ${CONFIG_DIR}/logs/current | tail -20   # View logs"
+    echo "  sv status ${SERVICE_NAME}                        # Check status"
+    echo "  sv restart ${SERVICE_NAME}                       # Restart"
+    echo "  sv down ${SERVICE_NAME}                          # Stop"
+    echo "  cat ${log_dir}/current | tail -20   # View logs"
 }
 
 uninstall_termux() {
     header "Removing termux-services service..."
 
-    if sv status "$SERVICE_NAME" &>/dev/null; then
-        sv down "$SERVICE_NAME"
-        success "Service stopped"
+    # Ensure SVDIR is set
+    if [ -z "${SVDIR:-}" ]; then
+        [ -f "${PREFIX}/etc/profile.d/start-services.sh" ] && . "${PREFIX}/etc/profile.d/start-services.sh"
     fi
+    : "${SVDIR:=${PREFIX}/var/service}"
 
-    if [ -d "$TERMUX_SV_DIR" ]; then
-        rm -rf "$TERMUX_SV_DIR"
+    local sv_dir="${SVDIR}/${SERVICE_NAME}"
+
+    if command_exists sv-disable; then
+        sv-disable "$SERVICE_NAME" 2>/dev/null || true
+    elif sv status "$SERVICE_NAME" &>/dev/null; then
+        sv down "$SERVICE_NAME"
+    fi
+    success "Service stopped"
+
+    if [ -d "$sv_dir" ]; then
+        rm -rf "$sv_dir"
         success "Service directory removed"
     else
         info "Service directory not found, nothing to remove"
@@ -513,6 +556,12 @@ uninstall_termux() {
 }
 
 status_termux() {
+    # Ensure SVDIR is set
+    if [ -z "${SVDIR:-}" ]; then
+        [ -f "${PREFIX}/etc/profile.d/start-services.sh" ] && . "${PREFIX}/etc/profile.d/start-services.sh"
+    fi
+    : "${SVDIR:=${PREFIX}/var/service}"
+
     sv status "$SERVICE_NAME" 2>/dev/null || info "Service not installed"
 }
 
@@ -569,7 +618,7 @@ print_summary() {
     echo ""
 
     if [ "$IS_TERMUX" = true ]; then
-        echo "  Logs:      cat ${CONFIG_DIR}/logs/current | tail -20"
+        echo "  Logs:      cat ${PREFIX}/var/log/sv/${SERVICE_NAME}/current | tail -20"
         echo "  Restart:   sv restart ${SERVICE_NAME}"
         echo "  Stop:      sv down ${SERVICE_NAME}"
     elif [ "$OS" = "darwin" ]; then
