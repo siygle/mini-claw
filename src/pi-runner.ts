@@ -1,11 +1,16 @@
 import { spawn } from "node:child_process";
-import { mkdir } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Config } from "./config.js";
 
 interface RunResult {
 	output: string;
 	error?: string;
+}
+
+export interface ExtractedImage {
+	data: Buffer;
+	mimeType: string;
 }
 
 export type ActivityType =
@@ -274,4 +279,82 @@ export async function checkPiAuth(): Promise<boolean> {
 			resolve(false);
 		});
 	});
+}
+
+/**
+ * Get the current line count of a session file.
+ * Used to track new entries added during Pi execution.
+ */
+export async function getSessionLineCount(
+	config: Config,
+	chatId: number,
+): Promise<number> {
+	const sessionPath = getSessionPath(config, chatId);
+	try {
+		const content = await readFile(sessionPath, "utf-8");
+		return content.trim().split("\n").length;
+	} catch {
+		return 0;
+	}
+}
+
+/**
+ * Extract images from session file's toolResult messages.
+ * Only looks at lines added after `afterLine` index.
+ * Returns images that were returned by tools (e.g., design_poster).
+ */
+export async function extractImagesFromSession(
+	config: Config,
+	chatId: number,
+	afterLine = 0,
+): Promise<ExtractedImage[]> {
+	const sessionPath = getSessionPath(config, chatId);
+	const images: ExtractedImage[] = [];
+
+	try {
+		const content = await readFile(sessionPath, "utf-8");
+		const lines = content.trim().split("\n");
+
+		// Only look at new lines (after the specified line index)
+		const newLines = lines.slice(afterLine);
+
+		for (const line of newLines) {
+			try {
+				const entry = JSON.parse(line);
+
+				// Check for toolResult message type
+				if (entry.type === "message" && entry.message?.role === "toolResult") {
+					const messageContent = entry.message.content;
+					if (Array.isArray(messageContent)) {
+						for (const item of messageContent) {
+							// Format 1: { type: "image", data: "...", mimeType: "..." }
+							if (item.type === "image" && item.data && item.mimeType) {
+								images.push({
+									data: Buffer.from(item.data, "base64"),
+									mimeType: item.mimeType,
+								});
+							}
+							// Format 2: { type: "image", source: { type: "base64", media_type: "...", data: "..." } }
+							else if (
+								item.type === "image" &&
+								item.source?.type === "base64" &&
+								item.source?.data
+							) {
+								images.push({
+									data: Buffer.from(item.source.data, "base64"),
+									mimeType: item.source.media_type || "image/png",
+								});
+							}
+						}
+					}
+				}
+			} catch {
+				// Skip invalid JSON lines
+			}
+		}
+	} catch {
+		// Session file doesn't exist or can't be read
+	}
+
+	return images;
 }
