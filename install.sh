@@ -3,7 +3,7 @@ set -euo pipefail
 
 # ── Mini-Claw Install & Deploy Script ────────────────────────────────────────
 # Downloads pre-built binaries (or builds from source) and sets up the
-# Mini-Claw Telegram bot as a system service on macOS or Linux.
+# Mini-Claw Telegram bot as a system service on macOS, Linux, or Termux.
 #
 # Usage:
 #   curl -fsSL https://raw.githubusercontent.com/siygle/mini-claw/main/install.sh | bash
@@ -26,6 +26,8 @@ SERVICE_NAME="mini-claw"
 LAUNCHD_LABEL="com.mini-claw.bot"
 LAUNCHD_PLIST="$HOME/Library/LaunchAgents/${LAUNCHD_LABEL}.plist"
 SYSTEMD_SERVICE="$HOME/.config/systemd/user/${SERVICE_NAME}.service"
+IS_TERMUX=false
+TERMUX_SV_DIR="${PREFIX:-/data/data/com.termux/files/usr}/var/service/${SERVICE_NAME}"
 
 # ── Colors ───────────────────────────────────────────────────────────────────
 
@@ -70,7 +72,13 @@ detect_platform() {
         darwin-aarch64) TARGET="aarch64-apple-darwin" ;;
     esac
 
-    info "Platform: ${OS}/${ARCH} (${TARGET})"
+    # Detect Termux
+    if [ -n "${TERMUX_VERSION:-}" ] || { [ -n "${PREFIX:-}" ] && [ -d "${PREFIX:-}/etc/apt" ]; }; then
+        IS_TERMUX=true
+        info "Platform: Termux/${ARCH} (${TARGET})"
+    else
+        info "Platform: ${OS}/${ARCH} (${TARGET})"
+    fi
 }
 
 # ── Usage ────────────────────────────────────────────────────────────────────
@@ -436,21 +444,101 @@ status_launchd() {
     launchctl print "gui/$(id -u)/${LAUNCHD_LABEL}" 2>/dev/null || info "Service not installed"
 }
 
+# ── Service: termux-services (Termux / runit) ──────────────────────────
+
+install_termux() {
+    header "Installing termux-services service..."
+
+    # Ensure termux-services is installed
+    if ! command_exists sv; then
+        info "Installing termux-services..."
+        pkg install -y termux-services
+        warn "termux-services was just installed. You may need to restart Termux for sv to work."
+    fi
+
+    mkdir -p "${TERMUX_SV_DIR}/log"
+
+    # Source .env and export vars for the run script
+    cat > "${TERMUX_SV_DIR}/run" <<EOF
+#!/data/data/com.termux/files/usr/bin/sh
+exec 2>&1
+
+# Load environment
+set -a
+. ${CONFIG_DIR}/.env
+set +a
+
+export HOME="${HOME}"
+export PATH="${PREFIX}/bin:${HOME}/.cargo/bin:${HOME}/.nvm/versions/node/\$(node --version 2>/dev/null || echo v0)/bin:\${PATH}"
+
+cd ${HOME}/mini-claw-workspace
+exec ${BIN_DIR}/mini-claw
+EOF
+    chmod +x "${TERMUX_SV_DIR}/run"
+
+    # Log service
+    cat > "${TERMUX_SV_DIR}/log/run" <<EOF
+#!/data/data/com.termux/files/usr/bin/sh
+mkdir -p ${CONFIG_DIR}/logs
+exec svlogd -tt ${CONFIG_DIR}/logs
+EOF
+    chmod +x "${TERMUX_SV_DIR}/log/run"
+
+    # Enable and start
+    sv up "$SERVICE_NAME" 2>/dev/null || true
+
+    success "Service installed and started"
+    echo ""
+    info "Useful commands:"
+    echo "  sv status ${SERVICE_NAME}    # Check status"
+    echo "  sv restart ${SERVICE_NAME}   # Restart"
+    echo "  sv down ${SERVICE_NAME}      # Stop"
+    echo "  cat ${CONFIG_DIR}/logs/current | tail -20   # View logs"
+}
+
+uninstall_termux() {
+    header "Removing termux-services service..."
+
+    if sv status "$SERVICE_NAME" &>/dev/null; then
+        sv down "$SERVICE_NAME"
+        success "Service stopped"
+    fi
+
+    if [ -d "$TERMUX_SV_DIR" ]; then
+        rm -rf "$TERMUX_SV_DIR"
+        success "Service directory removed"
+    else
+        info "Service directory not found, nothing to remove"
+    fi
+}
+
+status_termux() {
+    sv status "$SERVICE_NAME" 2>/dev/null || info "Service not installed"
+}
+
 # ── Service Router ───────────────────────────────────────────────────────────
 
 install_service() {
-    case "$OS" in
-        linux)  install_systemd ;;
-        darwin) install_launchd ;;
-    esac
+    if [ "$IS_TERMUX" = true ]; then
+        install_termux
+    else
+        case "$OS" in
+            linux)  install_systemd ;;
+            darwin) install_launchd ;;
+        esac
+    fi
 }
 
 uninstall_service() {
     detect_platform
-    case "$OS" in
-        linux)  uninstall_systemd ;;
-        darwin) uninstall_launchd ;;
-    esac
+    if [ "$IS_TERMUX" = true ]; then
+        uninstall_termux
+    else
+        case "$OS" in
+            linux)  uninstall_systemd ;;
+            darwin) uninstall_launchd ;;
+        esac
+    fi
     echo ""
     info "Binaries left in ${BIN_DIR}/. Remove manually if desired:"
     echo "  rm -rf ${INSTALL_DIR}"
@@ -458,10 +546,14 @@ uninstall_service() {
 
 show_status() {
     detect_platform
-    case "$OS" in
-        linux)  status_systemd ;;
-        darwin) status_launchd ;;
-    esac
+    if [ "$IS_TERMUX" = true ]; then
+        status_termux
+    else
+        case "$OS" in
+            linux)  status_systemd ;;
+            darwin) status_launchd ;;
+        esac
+    fi
 }
 
 # ── Summary ──────────────────────────────────────────────────────────────────
@@ -476,7 +568,11 @@ print_summary() {
     echo "  Workspace: ${HOME}/mini-claw-workspace/"
     echo ""
 
-    if [ "$OS" = "darwin" ]; then
+    if [ "$IS_TERMUX" = true ]; then
+        echo "  Logs:      cat ${CONFIG_DIR}/logs/current | tail -20"
+        echo "  Restart:   sv restart ${SERVICE_NAME}"
+        echo "  Stop:      sv down ${SERVICE_NAME}"
+    elif [ "$OS" = "darwin" ]; then
         echo "  Logs:      tail -f ${CONFIG_DIR}/mini-claw.log"
         echo "  Restart:   launchctl kickstart -k gui/$(id -u)/${LAUNCHD_LABEL}"
         echo "  Stop:      launchctl bootout gui/$(id -u)/${LAUNCHD_LABEL}"
