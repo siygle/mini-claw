@@ -3,7 +3,6 @@ mod config;
 mod error;
 mod file_detector;
 mod markdown;
-mod pi_rpc;
 mod pi_runner;
 mod rate_limiter;
 mod sessions;

@@ -8,7 +8,6 @@ use super::util::split_message;
 use super::AppState;
 use crate::file_detector::{detect_files, snapshot_workspace};
 use crate::markdown::{markdown_to_html, strip_markdown};
-use crate::pi_rpc::PiEvent;
 use crate::pi_runner::{
     extract_images_from_session, get_session_line_count, run_pi_with_streaming, ActivityType,
     ActivityUpdate, RunPiOptions,
@@ -19,11 +18,6 @@ pub async fn handle_text(bot: Bot, msg: Message, state: AppState) -> anyhow::Res
         Some(t) => t.to_string(),
         None => return Ok(()),
     };
-
-    // Skip commands
-    if text.starts_with('/') {
-        return Ok(());
-    }
 
     // Access control
     if !state.check_access(&msg) {
@@ -49,134 +43,7 @@ pub async fn handle_text(bot: Bot, msg: Message, state: AppState) -> anyhow::Res
         }
     }
 
-    // Check if live mode is active
-    let live_active = state.live_sessions.lock().await.is_active(chat_id);
-
-    if live_active {
-        handle_text_live(bot, msg, state, &text).await
-    } else {
-        handle_text_oneshot(bot, msg, state, &text).await
-    }
-}
-
-async fn handle_text_live(
-    bot: Bot,
-    msg: Message,
-    state: AppState,
-    text: &str,
-) -> anyhow::Result<()> {
-    let chat_id = msg.chat.id.0;
-
-    // Send prompt to persistent RPC process
-    {
-        let mut live = state.live_sessions.lock().await;
-        if let Err(e) = live.send_prompt(chat_id, text).await {
-            bot.send_message(msg.chat.id, format!("Live mode error: {e}"))
-                .await?;
-            return Ok(());
-        }
-    }
-
-    // Send initial status
-    let status_msg = bot
-        .send_message(msg.chat.id, "\u{1f534} LIVE | Working...")
-        .await?;
-
-    // Keep typing indicator active
-    let bot_typing = bot.clone();
-    let chat_id_tg = msg.chat.id;
-    let typing_handle = tokio::spawn(async move {
-        let mut interval = tokio::time::interval(Duration::from_secs(4));
-        loop {
-            interval.tick().await;
-            let _ = bot_typing
-                .send_chat_action(chat_id_tg, ChatAction::Typing)
-                .await;
-        }
-    });
-
-    // Accumulate response text from events
-    let mut accumulated_text = String::new();
-    let mut last_status_update = Instant::now();
-    let mut current_status = "\u{1f534} LIVE | Working...".to_string();
-
-    loop {
-        let event = {
-            let mut live = state.live_sessions.lock().await;
-            // Use a timeout so we don't hold the lock forever
-            tokio::time::timeout(Duration::from_millis(100), live.recv_event(chat_id)).await
-        };
-
-        match event {
-            Ok(Some(PiEvent::TextDelta(delta))) => {
-                accumulated_text.push_str(&delta);
-
-                // Throttle status updates
-                if last_status_update.elapsed() > Duration::from_secs(2) {
-                    let preview = if accumulated_text.len() > 100 {
-                        format!("{}...", &accumulated_text[..100])
-                    } else {
-                        accumulated_text.clone()
-                    };
-                    let new_status = format!("\u{1f534} LIVE | \u{270d}\u{fe0f} {preview}");
-                    if new_status != current_status {
-                        let _ = bot
-                            .edit_message_text(msg.chat.id, status_msg.id, &new_status)
-                            .await;
-                        current_status = new_status;
-                        last_status_update = Instant::now();
-                    }
-                }
-            }
-            Ok(Some(PiEvent::ToolStart { name })) => {
-                let new_status =
-                    format!("\u{1f534} LIVE | \u{26a1} Running {name}...");
-                if new_status != current_status {
-                    let _ = bot
-                        .edit_message_text(msg.chat.id, status_msg.id, &new_status)
-                        .await;
-                    current_status = new_status;
-                    last_status_update = Instant::now();
-                }
-            }
-            Ok(Some(PiEvent::AgentEnd)) => break,
-            Ok(Some(PiEvent::Error(e))) => {
-                typing_handle.abort();
-                let _ = bot.delete_message(msg.chat.id, status_msg.id).await;
-                bot.send_message(msg.chat.id, format!("Error: {e}"))
-                    .await?;
-                return Ok(());
-            }
-            Ok(Some(_)) => {} // Ignore other events
-            Ok(None) => break,  // Channel closed
-            Err(_) => continue, // Timeout, try again
-        }
-    }
-
-    typing_handle.abort();
-
-    // Delete status message
-    let _ = bot.delete_message(msg.chat.id, status_msg.id).await;
-
-    // Send accumulated response
-    if !accumulated_text.is_empty() {
-        let chunks = split_message(accumulated_text.trim());
-        for chunk in chunks {
-            match bot
-                .send_message(msg.chat.id, markdown_to_html(&chunk))
-                .parse_mode(teloxide::types::ParseMode::Html)
-                .await
-            {
-                Ok(_) => {}
-                Err(_) => {
-                    bot.send_message(msg.chat.id, strip_markdown(&chunk))
-                        .await?;
-                }
-            }
-        }
-    }
-
-    Ok(())
+    handle_text_oneshot(bot, msg, state, &text).await
 }
 
 async fn handle_text_oneshot(
