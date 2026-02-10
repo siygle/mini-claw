@@ -37,7 +37,7 @@ Lightweight Telegram bot for persistent AI conversations using Pi coding agent.
 - **One-shot mode only**: Uses `pi --print` — spawns a new Pi process per message, not interactive RPC.
 - **Per-chat locking**: `ChatLocks` (Mutex per chat_id) prevents concurrent Pi executions for the same chat.
 - **Session persistence**: Pi handles auto-compaction. Bot just passes `--session <path>`.
-- **Pi path resolution**: At startup, resolves pi binary via `PI_PATH` env, `which`, or scanning common Node.js manager locations (fnm, nvm, Volta). Critical for service deployments where fnm/nvm paths aren't on PATH.
+- **Pi invocation**: Uses bare `Command::new("pi")` — expects `pi` to be on PATH. No path resolution logic; matches parent TypeScript repo behavior.
 
 ### Request Flow (text message)
 
@@ -64,7 +64,7 @@ Lightweight Telegram bot for persistent AI conversations using Pi coding agent.
 │   └── release.yml        # Cross-platform release builds (5 targets)
 └── src/
     ├── main.rs            # Entry point: init tracing, load config, check pi, run dispatcher
-    ├── config.rs          # Config struct, env loading, pi path resolution
+    ├── config.rs          # Config struct, env loading
     ├── error.rs           # MiniClawError enum (Config, PiExecution, PiNotAuthenticated, Session, Workspace, Io, Json, Timeout)
     ├── rate_limiter.rs    # Per-chat rate limiting (HashMap<chat_id, Instant>)
     ├── markdown.rs        # Markdown → Telegram HTML (bold, italic, code, links, strikethrough)
@@ -84,12 +84,11 @@ Lightweight Telegram bot for persistent AI conversations using Pi coding agent.
 
 ### config.rs
 - `Config` struct: all settings from env vars
-- `load_config()` → loads .env, resolves paths, resolves pi binary
-- `resolve_pi_path()` → PI_PATH env → `which pi` → scan fnm/nvm/volta dirs
+- `load_config()` → loads .env, resolves paths
 - `ThinkingLevel` enum: Low, Medium, High
 
 ### pi_runner.rs
-- `check_pi_auth(pi_path)` → runs `pi --version`
+- `check_pi_auth()` → runs `pi --version` to verify Pi is on PATH
 - `run_pi_with_streaming(config, chat_id, prompt, workspace, on_activity, options)` → spawns pi process, streams output
 - `ChatLocks` → per-chat Mutex map for exclusive Pi access
 - `detect_activity(line)` → regex matching for Reading/Writing/Running/Searching/Thinking
@@ -100,7 +99,7 @@ Lightweight Telegram bot for persistent AI conversations using Pi coding agent.
 - `SessionManager` → tracks active session per chat (persisted to active-sessions.json)
 - `archive_session()` → renames with ISO timestamp suffix
 - `list_sessions()` → finds all .jsonl files, returns `Vec<SessionInfo>`
-- `generate_session_title(path, timeout, pi_path)` → asks Pi for 5-word title
+- `generate_session_title(path, timeout)` → asks Pi for 5-word title
 - `cleanup_old_sessions(config, keep_count)` → keeps N most recent per chat
 
 ### bot/handlers.rs
@@ -127,9 +126,6 @@ Lightweight Telegram bot for persistent AI conversations using Pi coding agent.
 ```bash
 # Required
 TELEGRAM_BOT_TOKEN=your_telegram_bot_token
-
-# Optional: Pi binary path (auto-detected if on PATH)
-PI_PATH=/path/to/pi
 
 # Optional: Directories
 MINI_CLAW_WORKSPACE=/path/to/workspace  # Default: ~/mini-claw-workspace
@@ -208,7 +204,7 @@ tmux new -s mini-claw && make start
 ## Common Issues
 
 ### "Pi is not installed or not authenticated"
-Pi binary not found on PATH. Set `PI_PATH` in .env to the full path (e.g., from `which pi` in your shell). Common for service deployments where fnm/nvm isn't initialized.
+Pi binary not found on PATH. Ensure `pi` is available in the service's PATH (e.g., in your runit/systemd run script). Run `which pi` to find where it's installed.
 
 ### Session stuck / concurrent messages
 Per-chat lock means only one Pi process per chat. If Pi hangs, the chat is blocked until timeout (default 5min). Reduce `PI_TIMEOUT_MS` if needed.
