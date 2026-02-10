@@ -280,6 +280,17 @@ Verify your token is set:
 grep TELEGRAM_BOT_TOKEN ~/.mini-claw/.env
 ```
 
+### Termux: `sv` unable to change to service directory
+
+If `sv status mini-claw` fails with "unable to change to service directory", the `SVDIR` environment variable is not set. This happens when `termux-services` was just installed and the shell hasn't been restarted.
+
+Fix: restart Termux (close and reopen the app), or manually source the profile:
+
+```bash
+source $PREFIX/etc/profile.d/start-services.sh
+sv status mini-claw
+```
+
 ## License
 
 MIT
