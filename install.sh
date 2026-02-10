@@ -661,6 +661,13 @@ main() {
     detect_platform
 
     if [ "$service_only" = false ]; then
+        # Termux uses Bionic libc, not glibc — pre-built linux-gnu binaries won't work
+        if [ "$IS_TERMUX" = true ] && [ "$from_source" = false ]; then
+            warn "Pre-built binaries are linked against glibc and won't run on Termux."
+            info "Switching to --from-source build automatically."
+            from_source=true
+        fi
+
         if [ "$from_source" = true ]; then
             build_from_source
         else
