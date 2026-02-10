@@ -31,8 +31,6 @@ pub enum BotCommand {
     New,
     #[command(description = "Show bot status")]
     Status,
-    #[command(description = "Toggle live interactive mode")]
-    Live(String),
 }
 
 pub async fn handle_command(
@@ -58,7 +56,6 @@ pub async fn handle_command(
         BotCommand::Session => handle_session(bot, msg, state).await,
         BotCommand::New => handle_new(bot, msg, state).await,
         BotCommand::Status => handle_status(bot, msg, state).await,
-        BotCommand::Live(arg) => handle_live(bot, msg, state, &arg).await,
     }
 }
 
@@ -99,13 +96,11 @@ async fn handle_help(bot: Bot, msg: Message) -> anyhow::Result<()> {
         \u{1f4ca} Info:\n\
         /status - Show bot status\n\
         /help - Show this message\n\n\
-        \u{1f517} Interactive:\n\
-        /live - Toggle persistent Pi session\n\n\
         \u{1f4a1} Tips:\n\
         \u{2022} Any text \u{2192} AI conversation\n\
         \u{2022} /shell runs instantly, no AI\n\
         \u{2022} /cd supports ~, .., relative paths\n\
-        \u{2022} /live enables mid-conversation interaction"
+        \u{2022} Pi commands like /reload work directly"
     )
     .await?;
     Ok(())
@@ -241,14 +236,6 @@ async fn handle_session(bot: Bot, msg: Message, state: AppState) -> anyhow::Resu
 async fn handle_new(bot: Bot, msg: Message, state: AppState) -> anyhow::Result<()> {
     let chat_id = msg.chat.id.0;
 
-    // Stop live session if active
-    {
-        let mut live = state.live_sessions.lock().await;
-        if live.is_active(chat_id) {
-            live.stop_session(chat_id).await;
-        }
-    }
-
     // Acquire lock to prevent concurrent Pi access
     let _guard = state.chat_locks.acquire(chat_id).await;
 
@@ -269,7 +256,6 @@ async fn handle_status(bot: Bot, msg: Message, state: AppState) -> anyhow::Resul
     let pi_ok = check_pi_auth().await;
     let cwd = state.workspace_mgr.lock().await.get_workspace(msg.chat.id.0).await;
     let formatted = WorkspaceManager::format_path(&cwd);
-    let live_active = state.live_sessions.lock().await.is_active(msg.chat.id.0);
 
     bot.send_message(
         msg.chat.id,
@@ -277,76 +263,12 @@ async fn handle_status(bot: Bot, msg: Message, state: AppState) -> anyhow::Resul
             "Status:\n\
             - Pi: {}\n\
             - Chat ID: {}\n\
-            - Workspace: {formatted}\n\
-            - Live mode: {}",
+            - Workspace: {formatted}",
             if pi_ok { "OK" } else { "Not available" },
             msg.chat.id,
-            if live_active { "ON" } else { "OFF" },
         ),
     )
     .await?;
-    Ok(())
-}
-
-async fn handle_live(bot: Bot, msg: Message, state: AppState, arg: &str) -> anyhow::Result<()> {
-    let chat_id = msg.chat.id.0;
-    let arg = arg.trim().to_lowercase();
-
-    let is_active = state.live_sessions.lock().await.is_active(chat_id);
-
-    match arg.as_str() {
-        "on" | "" if !is_active => {
-            // Enable live mode
-            let workspace = state.workspace_mgr.lock().await.get_workspace(chat_id).await;
-            let session_path = state.config.session_dir.join(format!("telegram-{chat_id}.jsonl"));
-
-            tokio::fs::create_dir_all(&state.config.session_dir).await?;
-
-            match state.live_sessions.lock().await.start_session(
-                chat_id,
-                &session_path,
-                &workspace,
-                state.config.thinking_level,
-            ).await {
-                Ok(_) => {
-                    bot.send_message(
-                        msg.chat.id,
-                        "\u{1f534} Live mode enabled!\nPi is now running persistently. Messages go directly to the active session.\nUse /live off to disable.",
-                    )
-                    .await?;
-                }
-                Err(e) => {
-                    bot.send_message(msg.chat.id, format!("Failed to start live mode: {e}"))
-                        .await?;
-                }
-            }
-        }
-        "off" | "" if is_active => {
-            state.live_sessions.lock().await.stop_session(chat_id).await;
-            bot.send_message(
-                msg.chat.id,
-                "Live mode disabled. Switched back to one-shot mode.",
-            )
-            .await?;
-        }
-        "status" => {
-            let status = if is_active { "ON" } else { "OFF" };
-            bot.send_message(msg.chat.id, format!("Live mode: {status}"))
-                .await?;
-        }
-        "" => {
-            // Already handled by the on/off branches above via is_active check
-            unreachable!()
-        }
-        _ => {
-            bot.send_message(
-                msg.chat.id,
-                "Usage: /live [on|off|status]\nNo argument toggles the mode.",
-            )
-            .await?;
-        }
-    }
-
     Ok(())
 }
 

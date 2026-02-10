@@ -9,7 +9,6 @@ use teloxide::dispatching::UpdateFilterExt;
 use teloxide::prelude::*;
 
 use crate::config::Config;
-use crate::pi_rpc::LiveSessionManager;
 use crate::pi_runner::ChatLocks;
 use crate::rate_limiter::RateLimiter;
 use crate::sessions::SessionManager;
@@ -22,7 +21,6 @@ pub struct AppState {
     pub workspace_mgr: Arc<tokio::sync::Mutex<WorkspaceManager>>,
     pub session_mgr: Arc<tokio::sync::Mutex<SessionManager>>,
     pub chat_locks: Arc<ChatLocks>,
-    pub live_sessions: Arc<tokio::sync::Mutex<LiveSessionManager>>,
 }
 
 impl AppState {
@@ -33,7 +31,6 @@ impl AppState {
             workspace_mgr: Arc::new(tokio::sync::Mutex::new(WorkspaceManager::new())),
             session_mgr: Arc::new(tokio::sync::Mutex::new(SessionManager::new())),
             chat_locks: Arc::new(ChatLocks::new()),
-            live_sessions: Arc::new(tokio::sync::Mutex::new(LiveSessionManager::new())),
         }
     }
 

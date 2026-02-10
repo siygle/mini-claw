@@ -31,9 +31,7 @@ Lightweight Telegram bot for persistent AI conversations using Pi coding agent.
                         └── telegram-<chat_id>.jsonl
 ```
 
-**Two Pi interaction modes:**
-- **One-shot** (`--print`): Default. Spawns a new Pi process per message.
-- **Live** (`--mode rpc`): Toggle with `/live`. Persistent Pi process per chat with mid-conversation interaction.
+**Pi interaction:** One-shot (`--print`) mode. Spawns a new Pi process per message. Pi agent commands (like `/reload`) are forwarded directly.
 
 ## Directory Structure
 
@@ -52,11 +50,10 @@ tehran/
 │   ├── file_detector.rs   # Detect files in Pi output
 │   ├── workspace.rs       # Per-chat working directory
 │   ├── pi_runner.rs       # One-shot Pi (--print mode)
-│   ├── pi_rpc.rs          # Persistent Pi (--mode rpc)
 │   ├── sessions.rs        # Session management
 │   └── bot/
 │       ├── mod.rs          # AppState, dispatcher setup
-│       ├── commands.rs     # /start, /help, /cd, /shell, /live, etc.
+│       ├── commands.rs     # /start, /help, /cd, /shell, etc.
 │       ├── handlers.rs     # Text & photo message handlers
 │       ├── callbacks.rs    # Inline keyboard callbacks
 │       └── util.rs         # split_message, run_shell
@@ -147,9 +144,9 @@ SESSION_TITLE_TIMEOUT_MS=10000          # Default: 10 seconds
 | `/session`     | List sessions with inline buttons |
 | `/new`         | Start fresh session (archive old) |
 | `/status`      | Show current session info         |
-| `/live`        | Toggle persistent Pi session      |
 
 Note: The bot registers these commands with Telegram, so they appear in the "/" menu.
+Unrecognized `/` commands (e.g., `/reload`) are forwarded to Pi as agent commands.
 
 ## Concurrency Handling
 
