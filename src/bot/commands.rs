@@ -60,7 +60,7 @@ pub async fn handle_command(
 }
 
 async fn handle_start(bot: Bot, msg: Message, state: AppState) -> anyhow::Result<()> {
-    let pi_ok = check_pi_auth().await;
+    let pi_ok = check_pi_auth(&state.config.pi_path).await;
     let status = if pi_ok {
         "Pi is ready"
     } else {
@@ -195,7 +195,7 @@ async fn handle_session(bot: Bot, msg: Message, state: AppState) -> anyhow::Resu
     let mut sessions_with_titles = Vec::new();
     for session in sessions.iter().take(10) {
         let title =
-            generate_session_title(&session.path, state.config.session_title_timeout_ms).await;
+            generate_session_title(&session.path, state.config.session_title_timeout_ms, &state.config.pi_path).await;
         sessions_with_titles.push((session, title));
     }
 
@@ -253,7 +253,7 @@ async fn handle_new(bot: Bot, msg: Message, state: AppState) -> anyhow::Result<(
 }
 
 async fn handle_status(bot: Bot, msg: Message, state: AppState) -> anyhow::Result<()> {
-    let pi_ok = check_pi_auth().await;
+    let pi_ok = check_pi_auth(&state.config.pi_path).await;
     let cwd = state.workspace_mgr.lock().await.get_workspace(msg.chat.id.0).await;
     let formatted = WorkspaceManager::format_path(&cwd);
 

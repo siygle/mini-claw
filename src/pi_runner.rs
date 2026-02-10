@@ -116,8 +116,8 @@ fn get_session_path(config: &Config, chat_id: i64) -> PathBuf {
     config.session_dir.join(format!("telegram-{chat_id}.jsonl"))
 }
 
-pub async fn check_pi_auth() -> bool {
-    match Command::new("pi")
+pub async fn check_pi_auth(pi_path: &str) -> bool {
+    match Command::new(pi_path)
         .arg("--version")
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
@@ -172,7 +172,7 @@ where
     let home = dirs::home_dir().unwrap_or_default();
     let pi_agent_dir = home.join(".pi").join("agent");
 
-    let mut child = match Command::new("pi")
+    let mut child = match Command::new(&config.pi_path)
         .args(&args)
         .current_dir(workspace)
         .env("PI_AGENT_DIR", &pi_agent_dir)

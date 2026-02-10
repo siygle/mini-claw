@@ -28,14 +28,18 @@ async fn main() -> Result<()> {
     let config = config::load_config()?;
     tracing::info!(workspace = %config.workspace.display(), "Workspace configured");
     tracing::info!(session_dir = %config.session_dir.display(), "Session dir configured");
+    tracing::info!(pi_path = %config.pi_path, "Pi binary resolved");
 
     // Ensure directories exist
     tokio::fs::create_dir_all(&config.workspace).await?;
     tokio::fs::create_dir_all(&config.session_dir).await?;
 
     // Check Pi installation
-    if !pi_runner::check_pi_auth().await {
-        anyhow::bail!("Pi is not installed or not authenticated. Run 'pi /login'.");
+    if !pi_runner::check_pi_auth(&config.pi_path).await {
+        anyhow::bail!(
+            "Pi is not working (tried: {}). Run 'pi /login' or set PI_PATH.",
+            config.pi_path
+        );
     }
     tracing::info!("Pi: OK");
 

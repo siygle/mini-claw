@@ -255,7 +255,7 @@ async fn get_first_user_message(session_path: &Path) -> Option<String> {
     None
 }
 
-pub async fn generate_session_title(session_path: &Path, timeout_ms: u64) -> String {
+pub async fn generate_session_title(session_path: &Path, timeout_ms: u64, pi_path: &str) -> String {
     let first_message = match get_first_user_message(session_path).await {
         Some(msg) => msg,
         None => return "Empty session".to_string(),
@@ -269,7 +269,7 @@ pub async fn generate_session_title(session_path: &Path, timeout_ms: u64) -> Str
     let result = tokio::time::timeout(
         Duration::from_millis(timeout_ms),
         async {
-            let output = Command::new("pi")
+            let output = Command::new(pi_path)
                 .args(["--print", "--no-session", &prompt])
                 .stdout(std::process::Stdio::piped())
                 .stderr(std::process::Stdio::null())
