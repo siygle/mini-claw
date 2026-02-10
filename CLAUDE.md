@@ -13,8 +13,8 @@ Lightweight Telegram bot for persistent AI conversations using Pi coding agent.
 - **Language**: Rust (2021 edition)
 - **Build**: Cargo
 - **AI Backend**: [@mariozechner/pi-coding-agent](https://github.com/badlogic/pi-mono)
-- **Telegram**: [teloxide](https://github.com/teloxide/teloxide) (mature Rust Telegram framework)
-- **Process**: Single long-running binary (systemd/tmux)
+- **Telegram**: [teloxide 0.17](https://github.com/teloxide/teloxide) with rustls
+- **Process**: Single long-running binary (systemd/launchd/tmux)
 
 ## Architecture
 
@@ -26,69 +26,101 @@ Lightweight Telegram bot for persistent AI conversations using Pi coding agent.
                            │
                            ▼
                     ~/.mini-claw/
-                    └── sessions/
-                        └── telegram-<chat_id>.jsonl
+                    ├── sessions/
+                    │   └── telegram-<chat_id>.jsonl
+                    ├── workspaces.json
+                    └── active-sessions.json
 ```
 
-**Pi interaction:** One-shot (`--print`) mode. Spawns a new Pi process per message. Pi agent commands (like `/reload`) are forwarded directly.
+### Key Design Decisions
+
+- **One-shot mode only**: Uses `pi --print` — spawns a new Pi process per message, not interactive RPC.
+- **Per-chat locking**: `ChatLocks` (Mutex per chat_id) prevents concurrent Pi executions for the same chat.
+- **Session persistence**: Pi handles auto-compaction. Bot just passes `--session <path>`.
+- **Pi path resolution**: At startup, resolves pi binary via `PI_PATH` env, `which`, or scanning common Node.js manager locations (fnm, nvm, Volta). Critical for service deployments where fnm/nvm paths aren't on PATH.
+
+### Request Flow (text message)
+
+1. Check access control (`ALLOWED_USERS`)
+2. Rate limit check (per-chat cooldown)
+3. Snapshot workspace filesystem (for new file detection)
+4. Send typing indicator + status message
+5. Acquire per-chat lock (prevents concurrent Pi runs)
+6. Spawn Pi: `pi --session <path> --print --thinking <level> [images...] <prompt>`
+7. Stream stdout line-by-line, detect activity (reading/writing/running/etc)
+8. Update status message with activity indicators
+9. On completion: send output (split at 4096 chars), extract images from session, detect new files
 
 ## Directory Structure
 
 ```
-auckland/
 ├── CLAUDE.md              # This file
-├── Cargo.toml             # mini-claw binary
+├── Cargo.toml             # Dependencies & build config
 ├── Makefile               # Quick commands
 ├── .env.example           # Environment template
+├── install.sh             # Universal installer (Linux/macOS/Termux)
+├── .github/workflows/
+│   ├── ci.yml             # Build + test + clippy on PRs
+│   └── release.yml        # Cross-platform release builds (5 targets)
 └── src/
-    ├── main.rs            # Entry point
-    ├── config.rs          # Configuration (env vars)
-    ├── error.rs           # MiniClawError enum
-    ├── rate_limiter.rs    # Per-chat rate limiting
-    ├── markdown.rs        # Markdown → Telegram HTML
-    ├── file_detector.rs   # Detect files in Pi output
-    ├── workspace.rs       # Per-chat working directory
-    ├── pi_runner.rs       # One-shot Pi (--print mode)
-    ├── sessions.rs        # Session management
+    ├── main.rs            # Entry point: init tracing, load config, check pi, run dispatcher
+    ├── config.rs          # Config struct, env loading, pi path resolution
+    ├── error.rs           # MiniClawError enum (Config, PiExecution, PiNotAuthenticated, Session, Workspace, Io, Json, Timeout)
+    ├── rate_limiter.rs    # Per-chat rate limiting (HashMap<chat_id, Instant>)
+    ├── markdown.rs        # Markdown → Telegram HTML (bold, italic, code, links, strikethrough)
+    ├── file_detector.rs   # Detect files in Pi output + workspace snapshot diff
+    ├── workspace.rs       # Per-chat working directory (persisted to workspaces.json)
+    ├── pi_runner.rs       # Pi execution, activity detection, ChatLocks, image extraction
+    ├── sessions.rs        # Session CRUD, archival, title generation, cleanup
     └── bot/
-        ├── mod.rs          # AppState, dispatcher setup
-        ├── commands.rs     # /start, /help, /cd, /shell, etc.
-        ├── handlers.rs     # Text & photo message handlers
-        ├── callbacks.rs    # Inline keyboard callbacks
-        └── util.rs         # split_message, run_shell
+        ├── mod.rs          # AppState (shared state), dispatcher setup, access control
+        ├── commands.rs     # /start, /help, /pwd, /cd, /home, /shell, /session, /new, /status
+        ├── handlers.rs     # Text message handler, photo handler (with activity streaming)
+        ├── callbacks.rs    # Inline keyboard: session:load:<filename>, session:cleanup
+        └── util.rs         # split_message (4096 limit), run_shell (bash -c with timeout)
 ```
 
-## Quick Start
+## Module Reference
 
-```bash
-# 1. Build & install
-make install
+### config.rs
+- `Config` struct: all settings from env vars
+- `load_config()` → loads .env, resolves paths, resolves pi binary
+- `resolve_pi_path()` → PI_PATH env → `which pi` → scan fnm/nvm/volta dirs
+- `ThinkingLevel` enum: Low, Medium, High
 
-# 2. Login to AI provider (Claude/ChatGPT)
-make login
+### pi_runner.rs
+- `check_pi_auth(pi_path)` → runs `pi --version`
+- `run_pi_with_streaming(config, chat_id, prompt, workspace, on_activity, options)` → spawns pi process, streams output
+- `ChatLocks` → per-chat Mutex map for exclusive Pi access
+- `detect_activity(line)` → regex matching for Reading/Writing/Running/Searching/Thinking
+- `extract_images_from_session(config, chat_id, after_line)` → parses JSONL for base64 images
+- `RunResult { output, error }`, `ActivityUpdate { activity_type, detail, elapsed }`
 
-# 3. Configure Telegram bot token
-cp .env.example .env
-# Edit .env with your TELEGRAM_BOT_TOKEN
+### sessions.rs
+- `SessionManager` → tracks active session per chat (persisted to active-sessions.json)
+- `archive_session()` → renames with ISO timestamp suffix
+- `list_sessions()` → finds all .jsonl files, returns `Vec<SessionInfo>`
+- `generate_session_title(path, timeout, pi_path)` → asks Pi for 5-word title
+- `cleanup_old_sessions(config, keep_count)` → keeps N most recent per chat
 
-# 4. Start the bot
-make dev
-```
+### bot/handlers.rs
+- `handle_text()` → main message loop (rate limit → lock → pi → send output → send files)
+- `handle_photo()` → downloads photo, passes to Pi with `@/path/to/image.jpg` syntax
+- Activity status updates with emoji indicators, debounced at 2s
 
-## Makefile Commands
+### bot/commands.rs
+- `BotCommand` enum with teloxide derive macros
+- Unrecognized `/` commands forwarded to Pi as agent commands (e.g., `/reload`)
 
-| Command              | Description                        |
-| -------------------- | ---------------------------------- |
-| `make install`       | Build workspace + install Pi agent |
-| `make login`         | Run `pi /login` to authenticate    |
-| `make dev`           | Build & run bot (debug)            |
-| `make start`         | Build & run bot (release)          |
-| `make build`         | Compile all workspace crates       |
-| `make test`          | Run all tests                      |
-| `make clippy`        | Run clippy lints                   |
-| `make check`         | Run clippy + tests                 |
-| `make status`        | Check Pi auth status               |
-| `make clean`         | Remove build artifacts             |
+### file_detector.rs
+- `parse_output_for_files()` → regex for "Created:", "Saved to:", "File:" patterns
+- `snapshot_workspace()` / `detect_new_files()` → before/after filesystem diff
+- `categorize_files()` → Photo (.png/.jpg/.gif/.webp) vs Document (.pdf/.txt/.md/etc)
+
+### markdown.rs
+- `markdown_to_html()` → safe conversion (escapes HTML first, then applies formatting)
+- `strip_markdown()` → removes all formatting
+- Handles code blocks separately to preserve content
 
 ## Environment Variables
 
@@ -96,93 +128,90 @@ make dev
 # Required
 TELEGRAM_BOT_TOKEN=your_telegram_bot_token
 
-# Optional
+# Optional: Pi binary path (auto-detected if on PATH)
+PI_PATH=/path/to/pi
+
+# Optional: Directories
 MINI_CLAW_WORKSPACE=/path/to/workspace  # Default: ~/mini-claw-workspace
 MINI_CLAW_SESSION_DIR=~/.mini-claw/sessions
+
+# Optional: Pi settings
 PI_THINKING_LEVEL=low                   # low | medium | high
+BRAVE_API_KEY=your-key                  # For Pi web search skill
+
+# Optional: Access control
 ALLOWED_USERS=123,456                   # Comma-separated user IDs (empty = allow all)
 
-# Rate Limiting & Timeouts (all in milliseconds)
+# Optional: Timeouts (milliseconds)
 RATE_LIMIT_COOLDOWN_MS=5000             # Default: 5 seconds between messages
 PI_TIMEOUT_MS=300000                    # Default: 5 minutes
 SHELL_TIMEOUT_MS=60000                  # Default: 60 seconds
 SESSION_TITLE_TIMEOUT_MS=10000          # Default: 10 seconds
 ```
 
-## Session Management
-
-- Each Telegram chat gets its own Pi session file
-- Session file: `~/.mini-claw/sessions/telegram-<chat_id>.jsonl`
-- Pi handles auto-compaction when context window fills
-- Full history preserved in JSONL, compacted context for AI
-
-## Bot Commands
-
-| Command        | Description                       |
-| -------------- | --------------------------------- |
-| `/start`       | Welcome message                   |
-| `/help`        | Show all commands                 |
-| `/pwd`         | Show current working directory    |
-| `/cd <path>`   | Change working directory          |
-| `/home`        | Go to home directory              |
-| `/shell <cmd>` | Run shell command directly        |
-| `/session`     | List sessions with inline buttons |
-| `/new`         | Start fresh session (archive old) |
-| `/status`      | Show current session info         |
-
-Note: The bot registers these commands with Telegram, so they appear in the "/" menu.
-Unrecognized `/` commands (e.g., `/reload`) are forwarded to Pi as agent commands.
-
-## Concurrency Handling
-
-- Per-chat `Mutex` locking prevents concurrent Pi executions
-- Rate limiter with configurable cooldown
-- Typing indicator while processing
-
 ## Development
 
 ```bash
-# Build workspace
-cargo build --workspace
-
-# Run tests
-cargo test --workspace
-
-# Run clippy
-cargo clippy --workspace
-
-# Run bot in debug mode
-cargo run
+make dev        # Build & run (debug)
+make test       # Run all tests
+make clippy     # Lint check
+make check      # clippy + tests
+make build      # Compile only
+make login      # Run pi /login
+make status     # Check pi auth
 ```
+
+### CI
+
+- **ci.yml**: Runs on PRs to main — build, test, clippy (warnings = errors)
+- **release.yml**: On tag push (v*) — builds 5 targets, creates GitHub release with tarballs
+
+### Release Targets
+
+| Target | Platform |
+|--------|----------|
+| `x86_64-unknown-linux-gnu` | Linux x86_64 |
+| `aarch64-unknown-linux-gnu` | Linux ARM64 |
+| `aarch64-unknown-linux-musl` | Linux ARM64 musl (Termux) |
+| `x86_64-apple-darwin` | macOS Intel |
+| `aarch64-apple-darwin` | macOS Apple Silicon |
 
 ## Deployment
 
-### Option 1: systemd (Linux)
+### install.sh (recommended)
+Universal installer — detects OS/arch, downloads binary or builds from source, configures .env, sets up system service (systemd/launchd/runit).
 
+### systemd (Linux)
 ```bash
-make install-service  # Creates systemd user service
+make install-service
 systemctl --user start mini-claw
 systemctl --user enable mini-claw
 ```
 
-### Option 2: tmux (manual)
+### launchd (macOS)
+Installed by install.sh to `~/Library/LaunchAgents/com.mini-claw.plist`
 
+### tmux (manual)
 ```bash
-tmux new -s mini-claw
-make start
-# Ctrl+B, D to detach
+tmux new -s mini-claw && make start
 ```
 
-## Key Crates
+## Key Constants
 
-| Purpose | Crate |
-|---------|-------|
-| Telegram bot | `teloxide 0.17` |
-| Async runtime | `tokio` (full) |
-| Serialization | `serde` + `serde_json` |
-| HTTP client | `reqwest 0.12` |
-| Errors | `thiserror` + `anyhow` |
-| Logging | `tracing` + `tracing-subscriber` |
+| Constant | Value | File |
+|----------|-------|------|
+| MAX_MESSAGE_LENGTH | 4096 | bot/util.rs |
+| Activity update debounce | 2s | bot/handlers.rs |
+| Typing indicator interval | 4s | bot/handlers.rs |
+| Periodic "working" updates | 5s | pi_runner.rs |
+
+## Common Issues
+
+### "Pi is not installed or not authenticated"
+Pi binary not found on PATH. Set `PI_PATH` in .env to the full path (e.g., from `which pi` in your shell). Common for service deployments where fnm/nvm isn't initialized.
+
+### Session stuck / concurrent messages
+Per-chat lock means only one Pi process per chat. If Pi hangs, the chat is blocked until timeout (default 5min). Reduce `PI_TIMEOUT_MS` if needed.
 
 ## License
 
