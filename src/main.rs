@@ -34,14 +34,22 @@ async fn main() -> Result<()> {
     tokio::fs::create_dir_all(&config.workspace).await?;
     tokio::fs::create_dir_all(&config.session_dir).await?;
 
-    // Check Pi installation
-    if !pi_runner::check_pi_auth(&config.pi_path).await {
-        anyhow::bail!(
-            "Pi is not working (tried: {}). Run 'pi /login' or set PI_PATH.",
-            config.pi_path
-        );
+    // Check Pi readiness (lightweight filesystem checks, no subprocess)
+    match pi_runner::check_pi_readiness(&config.pi_path).await {
+        pi_runner::PiReadiness::Ready => {
+            tracing::info!("Pi: OK (binary found, auth present)");
+        }
+        pi_runner::PiReadiness::BinaryNotFound(path) => {
+            anyhow::bail!("Pi binary not found at: {path}. Set PI_PATH or install Pi.");
+        }
+        #[cfg(unix)]
+        pi_runner::PiReadiness::BinaryNotExecutable(path) => {
+            anyhow::bail!("Pi binary not executable: {path}. Run: chmod +x {path}");
+        }
+        pi_runner::PiReadiness::AuthFileMissing => {
+            tracing::warn!("Pi auth file (~/.pi/agent/auth.json) not found. Run 'pi /login' if not authenticated. Continuing startup...");
+        }
     }
-    tracing::info!("Pi: OK");
 
     // Build shared state
     let state = bot::AppState::new(config.clone());
