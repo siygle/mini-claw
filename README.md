@@ -165,6 +165,23 @@ systemctl --user stop mini-claw        # Stop
 journalctl --user -u mini-claw -f      # Logs
 ```
 
+### Termux (Android)
+
+The install script detects Termux and uses `termux-services` (runit/sv).
+
+```bash
+# Install (build from source recommended on Termux)
+./install.sh --from-source
+
+# Manage service
+sv status mini-claw                    # Status
+sv restart mini-claw                   # Restart
+sv down mini-claw                      # Stop
+cat ~/.mini-claw/logs/current | tail -20  # View logs
+```
+
+Requires `termux-services` package (installed automatically if missing).
+
 ## Development
 
 ```bash
