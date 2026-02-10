@@ -177,7 +177,7 @@ The install script detects Termux and uses `termux-services` (runit/sv).
 sv status mini-claw                    # Status
 sv restart mini-claw                   # Restart
 sv down mini-claw                      # Stop
-cat ~/.mini-claw/logs/current | tail -20  # View logs
+cat $PREFIX/var/log/sv/mini-claw/current | tail -20  # View logs
 ```
 
 Requires `termux-services` package (installed automatically if missing).
