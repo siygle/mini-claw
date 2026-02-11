@@ -149,8 +149,10 @@ download_binaries() {
 
     mkdir -p "$BIN_DIR"
 
-    # Find and copy binaries (they're inside a directory in the tarball)
+    # Find and install binaries (they're inside a directory in the tarball)
+    # Remove first to avoid "Text file busy" when binary is running as a service
     local extract_dir="${tmp_dir}/mini-claw-${version}-${TARGET}"
+    rm -f "${BIN_DIR}/mini-claw"
     cp "${extract_dir}/mini-claw" "${BIN_DIR}/mini-claw"
     chmod +x "${BIN_DIR}/mini-claw"
 
@@ -203,6 +205,8 @@ build_from_source() {
     (cd "$project_dir" && cargo build --release --workspace)
 
     mkdir -p "$BIN_DIR"
+    # Remove first to avoid "Text file busy" when binary is running as a service
+    rm -f "${BIN_DIR}/mini-claw"
     cp "${project_dir}/target/release/mini-claw" "${BIN_DIR}/mini-claw"
     chmod +x "${BIN_DIR}/mini-claw"
 
