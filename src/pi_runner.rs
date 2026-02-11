@@ -5,10 +5,74 @@ use std::sync::Arc;
 use base64::Engine;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, OnceCell};
 use tokio::time::{Duration, Instant};
 
 use crate::config::Config;
+
+/// Cached pi invocation: (program, prefix_args).
+/// Normal: ("pi", [])
+/// Termux fallback: ("node", ["/path/to/cli.js"])
+static PI_INVOCATION: OnceCell<(String, Vec<String>)> = OnceCell::const_new();
+
+/// Resolve how to invoke pi. On most systems, `Command::new("pi")` works directly.
+/// On Termux, the shebang `#!/usr/bin/env node` fails because `/usr/bin/env` doesn't exist.
+/// In that case, find the pi script and invoke it via `node` directly.
+async fn resolve_pi_invocation() -> (String, Vec<String>) {
+    // Try spawning pi directly — ENOENT is immediate (no timeout needed)
+    match Command::new("pi")
+        .arg("--version")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+    {
+        Ok(mut child) => {
+            // exec succeeded — pi is directly runnable
+            let _ = child.kill().await;
+            return ("pi".to_string(), vec![]);
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            // Shebang interpreter missing (Termux). Try node fallback.
+            if let Some(script) = find_pi_script().await {
+                tracing::info!(script = %script.display(), "Using node fallback for pi (shebang fix)");
+                return (
+                    "node".to_string(),
+                    vec![script.to_string_lossy().to_string()],
+                );
+            }
+        }
+        Err(_) => {}
+    }
+    ("pi".to_string(), vec![])
+}
+
+/// Find the pi script by resolving `which pi` and following symlinks.
+async fn find_pi_script() -> Option<PathBuf> {
+    let output = Command::new("which")
+        .arg("pi")
+        .output()
+        .await
+        .ok()?;
+    let path_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if path_str.is_empty() {
+        return None;
+    }
+    tokio::fs::canonicalize(&path_str).await.ok()
+}
+
+/// Create a Command configured to run pi. Handles Termux shebang issues
+/// by falling back to `node <script>` if direct `pi` execution fails.
+pub async fn make_pi_command() -> Command {
+    let (prog, prefix) = PI_INVOCATION
+        .get_or_init(|| async { resolve_pi_invocation().await })
+        .await;
+
+    let mut cmd = Command::new(prog);
+    for arg in prefix {
+        cmd.arg(arg);
+    }
+    cmd
+}
 
 #[derive(Debug)]
 pub struct RunResult {
@@ -116,12 +180,13 @@ fn get_session_path(config: &Config, chat_id: i64) -> PathBuf {
     config.session_dir.join(format!("telegram-{chat_id}.jsonl"))
 }
 
-/// Check if Pi is available on PATH by running `pi --version`.
+/// Check if Pi is available by running `pi --version` (with Termux node fallback).
 /// Returns Ok(()) on success, Err(message) with diagnostic info on failure.
 /// Times out after 30 seconds to prevent blocking startup.
 pub async fn check_pi_auth() -> Result<(), String> {
     match tokio::time::timeout(Duration::from_secs(30), async {
-        match Command::new("pi")
+        let mut cmd = make_pi_command().await;
+        match cmd
             .arg("--version")
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
@@ -188,7 +253,8 @@ where
     let home = dirs::home_dir().unwrap_or_default();
     let pi_agent_dir = home.join(".pi").join("agent");
 
-    let mut child = match Command::new("pi")
+    let mut cmd = make_pi_command().await;
+    let mut child = match cmd
         .args(&args)
         .current_dir(workspace)
         .env("PI_AGENT_DIR", &pi_agent_dir)

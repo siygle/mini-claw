@@ -46,6 +46,17 @@ impl AppState {
 }
 
 pub async fn build_and_run(bot: Bot, state: AppState) {
+    // Wait for Telegram API to be reachable (prevents panic on spotty networks)
+    loop {
+        match bot.get_me().await {
+            Ok(_) => break,
+            Err(e) => {
+                tracing::warn!("Telegram API not reachable, retrying in 10s: {e}");
+                tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+            }
+        }
+    }
+
     let handler = dptree::entry()
         .branch(
             Update::filter_message()
