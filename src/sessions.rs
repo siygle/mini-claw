@@ -2,11 +2,11 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
-use tokio::process::Command;
 use tokio::time::Duration;
 
 use crate::config::Config;
 use crate::error::MiniClawError;
+use crate::pi_runner::make_pi_command;
 
 pub struct SessionManager {
     active_sessions: HashMap<String, String>, // chatId -> session filename
@@ -269,7 +269,8 @@ pub async fn generate_session_title(session_path: &Path, timeout_ms: u64) -> Str
     let result = tokio::time::timeout(
         Duration::from_millis(timeout_ms),
         async {
-            let output = Command::new("pi")
+            let output = make_pi_command()
+                .await
                 .args(["--print", "--no-session", &prompt])
                 .stdout(std::process::Stdio::piped())
                 .stderr(std::process::Stdio::null())
