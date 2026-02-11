@@ -182,6 +182,14 @@ build_from_source() {
         fi
     fi
 
+    # Ensure OpenSSL dev headers are available (needed for native-tls)
+    if [ "$IS_TERMUX" = true ]; then
+        if ! pkg list-installed 2>/dev/null | grep -q '^openssl '; then
+            info "Installing OpenSSL dev headers for TLS support..."
+            pkg install -y openssl
+        fi
+    fi
+
     # Must be in project directory for cargo build
     local project_dir
     project_dir="$(cd "$(dirname "$0")" && pwd)"
