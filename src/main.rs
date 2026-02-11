@@ -33,13 +33,14 @@ async fn main() -> Result<()> {
     tokio::fs::create_dir_all(&config.workspace).await?;
     tokio::fs::create_dir_all(&config.session_dir).await?;
 
-    // Check Pi is available on PATH
-    if let Err(reason) = pi_runner::check_pi_auth().await {
-        let path = std::env::var("PATH").unwrap_or_else(|_| "(unset)".into());
-        tracing::error!(path = %path, "Pi check failed: {reason}");
-        anyhow::bail!("Pi check failed: {reason}");
+    // Check Pi is available on PATH (non-fatal — per-message errors handled gracefully)
+    match pi_runner::check_pi_auth().await {
+        Ok(()) => tracing::info!("Pi: OK"),
+        Err(reason) => {
+            let path = std::env::var("PATH").unwrap_or_else(|_| "(unset)".into());
+            tracing::warn!(path = %path, "Pi check failed (bot will continue): {reason}");
+        }
     }
-    tracing::info!("Pi: OK");
 
     // Build shared state
     let state = bot::AppState::new(config.clone());
