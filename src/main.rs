@@ -34,8 +34,10 @@ async fn main() -> Result<()> {
     tokio::fs::create_dir_all(&config.session_dir).await?;
 
     // Check Pi is available on PATH
-    if !pi_runner::check_pi_auth().await {
-        anyhow::bail!("Pi is not installed or not authenticated. Run 'pi /login'.");
+    if let Err(reason) = pi_runner::check_pi_auth().await {
+        let path = std::env::var("PATH").unwrap_or_else(|_| "(unset)".into());
+        tracing::error!(path = %path, "Pi check failed: {reason}");
+        anyhow::bail!("Pi check failed: {reason}");
     }
     tracing::info!("Pi: OK");
 
