@@ -7,14 +7,19 @@ version = "0.1.0"
 edition = "2021"
 description = "Lightweight Telegram bot for persistent AI conversations using Pi"
 
+[features]
+default = []
+vendored-openssl = ["openssl-sys/vendored"]
+
 [dependencies]
+openssl-sys = "0.9"
 tokio = { version = "1", features = ["full"] }
-teloxide = { version = "0.17", default-features = false, features = ["macros", "rustls", "ctrlc_handler"] }
+teloxide = { version = "0.17", default-features = false, features = ["macros", "native-tls", "ctrlc_handler"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 dotenvy = "0.15"
 regex = "1"
-reqwest = { version = "0.12", default-features = false, features = ["stream", "rustls-tls-native-roots"] }
+reqwest = { version = "0.12", default-features = false, features = ["stream", "native-tls"] }
 tempfile = "3"
 thiserror = "2"
 anyhow = "1"

@@ -149,8 +149,10 @@ download_binaries() {
 
     mkdir -p "$BIN_DIR"
 
-    # Find and copy binaries (they're inside a directory in the tarball)
+    # Find and install binaries (they're inside a directory in the tarball)
+    # Remove first to avoid "Text file busy" when binary is running as a service
     local extract_dir="${tmp_dir}/mini-claw-${version}-${TARGET}"
+    rm -f "${BIN_DIR}/mini-claw"
     cp "${extract_dir}/mini-claw" "${BIN_DIR}/mini-claw"
     chmod +x "${BIN_DIR}/mini-claw"
 
@@ -182,6 +184,14 @@ build_from_source() {
         fi
     fi
 
+    # Ensure OpenSSL dev headers are available (needed for native-tls)
+    if [ "$IS_TERMUX" = true ]; then
+        if ! pkg list-installed 2>/dev/null | grep -q '^openssl '; then
+            info "Installing OpenSSL dev headers for TLS support..."
+            pkg install -y openssl
+        fi
+    fi
+
     # Must be in project directory for cargo build
     local project_dir
     project_dir="$(cd "$(dirname "$0")" && pwd)"
@@ -195,6 +205,8 @@ build_from_source() {
     (cd "$project_dir" && cargo build --release --workspace)
 
     mkdir -p "$BIN_DIR"
+    # Remove first to avoid "Text file busy" when binary is running as a service
+    rm -f "${BIN_DIR}/mini-claw"
     cp "${project_dir}/target/release/mini-claw" "${BIN_DIR}/mini-claw"
     chmod +x "${BIN_DIR}/mini-claw"
 
