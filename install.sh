@@ -480,6 +480,26 @@ install_termux() {
     local sv_dir="${SVDIR}/${SERVICE_NAME}"
     mkdir -p "${sv_dir}/log"
 
+    # Detect Node.js bin directory for pi-coding-agent
+    local node_path_snippet=""
+    if [ -d "${HOME}/.local/share/fnm/aliases/default/bin" ]; then
+        node_path_snippet="${HOME}/.local/share/fnm/aliases/default/bin"
+        info "Detected fnm Node manager"
+    elif [ -d "${HOME}/.fnm/aliases/default/bin" ]; then
+        node_path_snippet="${HOME}/.fnm/aliases/default/bin"
+        info "Detected fnm Node manager (alt location)"
+    elif [ -d "${HOME}/.nvm/versions/node" ]; then
+        local nvm_node_ver
+        nvm_node_ver="$(node --version 2>/dev/null || echo '')"
+        if [ -n "$nvm_node_ver" ] && [ -d "${HOME}/.nvm/versions/node/${nvm_node_ver}/bin" ]; then
+            node_path_snippet="${HOME}/.nvm/versions/node/${nvm_node_ver}/bin"
+        fi
+        info "Detected nvm Node manager"
+    elif [ -d "${HOME}/.volta/bin" ]; then
+        node_path_snippet="${HOME}/.volta/bin"
+        info "Detected Volta Node manager"
+    fi
+
     # Create the run script
     cat > "${sv_dir}/run" <<EOF
 #!/data/data/com.termux/files/usr/bin/sh
@@ -491,7 +511,7 @@ set -a
 set +a
 
 export HOME="${HOME}"
-export PATH="${PREFIX}/bin:${HOME}/.cargo/bin:${HOME}/.nvm/versions/node/\$(node --version 2>/dev/null || echo v0)/bin:\${PATH}"
+export PATH="${PREFIX}/bin:${HOME}/.cargo/bin${node_path_snippet:+:${node_path_snippet}}:\${PATH}"
 
 cd ${HOME}/mini-claw-workspace
 exec ${BIN_DIR}/mini-claw

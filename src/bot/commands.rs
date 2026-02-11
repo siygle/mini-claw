@@ -60,7 +60,7 @@ pub async fn handle_command(
 }
 
 async fn handle_start(bot: Bot, msg: Message, state: AppState) -> anyhow::Result<()> {
-    let status = if check_pi_auth().await { "Pi: OK" } else { "Pi: not available" };
+    let status = if check_pi_auth().await.is_ok() { "Pi: OK" } else { "Pi: not available" };
 
     let cwd = state.workspace_mgr.lock().await.get_workspace(msg.chat.id.0).await;
     let formatted = WorkspaceManager::format_path(&cwd);
@@ -248,7 +248,7 @@ async fn handle_new(bot: Bot, msg: Message, state: AppState) -> anyhow::Result<(
 }
 
 async fn handle_status(bot: Bot, msg: Message, state: AppState) -> anyhow::Result<()> {
-    let pi_status = if check_pi_auth().await { "OK".to_string() } else { "not available".to_string() };
+    let pi_status = if check_pi_auth().await.is_ok() { "OK".to_string() } else { "not available".to_string() };
     let cwd = state.workspace_mgr.lock().await.get_workspace(msg.chat.id.0).await;
     let formatted = WorkspaceManager::format_path(&cwd);
 

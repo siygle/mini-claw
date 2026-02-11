@@ -117,16 +117,31 @@ fn get_session_path(config: &Config, chat_id: i64) -> PathBuf {
 }
 
 /// Check if Pi is available on PATH by running `pi --version`.
-pub async fn check_pi_auth() -> bool {
-    match Command::new("pi")
-        .arg("--version")
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()
-        .await
+/// Returns Ok(()) on success, Err(message) with diagnostic info on failure.
+/// Times out after 30 seconds to prevent blocking startup.
+pub async fn check_pi_auth() -> Result<(), String> {
+    match tokio::time::timeout(Duration::from_secs(30), async {
+        match Command::new("pi")
+            .arg("--version")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .await
+        {
+            Ok(status) if status.success() => Ok(()),
+            Ok(status) => Err(format!(
+                "pi --version exited with code {}. Run 'pi /login' to authenticate.",
+                status.code().unwrap_or(-1)
+            )),
+            Err(e) => Err(format!(
+                "Failed to run 'pi': {e}. Is 'pi' installed and on PATH?"
+            )),
+        }
+    })
+    .await
     {
-        Ok(status) => status.success(),
-        Err(_) => false,
+        Ok(result) => result,
+        Err(_) => Err("pi --version timed out after 30s".into()),
     }
 }
 
