@@ -1,5 +1,8 @@
-# Rust
-/target/
+# Dependencies
+node_modules/
+
+# Build output
+dist/
 
 # Environment
 .env
@@ -13,11 +16,12 @@
 .DS_Store
 Thumbs.db
 
+# Logs
+*.log
+npm-debug.log*
+
 # Sessions (local data)
 sessions/
 
-# Logs
-*.log
-
-# Context (agent collaboration)
-.context/
+# Coverage
+coverage/
