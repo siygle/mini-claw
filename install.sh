@@ -513,6 +513,10 @@ set +a
 export HOME="${HOME}"
 export PATH="${PREFIX}/bin:${HOME}/.cargo/bin${node_path_snippet:+:${node_path_snippet}}:\${PATH}"
 
+# Fix npm-installed script shebangs (#!/usr/bin/env doesn't exist on Termux)
+PI_BIN="\$(command -v pi 2>/dev/null)"
+[ -n "\$PI_BIN" ] && termux-fix-shebang "\$PI_BIN" 2>/dev/null || true
+
 cd ${HOME}/mini-claw-workspace
 exec ${BIN_DIR}/mini-claw
 EOF
